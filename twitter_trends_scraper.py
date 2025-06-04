@@ -11,6 +11,7 @@ API keys are required.
 import requests
 from bs4 import BeautifulSoup
 import tkinter as tk
+from tkinter import messagebox
 import re
 from collections import Counter
 import string
@@ -20,6 +21,8 @@ from nltk.sentiment import SentimentIntensityAnalyzer
 from nltk.corpus import stopwords
 from googletrans import Translator
 from concurrent.futures import ThreadPoolExecutor
+import os
+import sys
 
 # -------------------------------------------------------------
 # Trend fetching
@@ -161,11 +164,28 @@ def analyze_trend(topic):
     }
 
 def build_ui(data):
-    root = tk.Tk()
+    """Render the results in a minimal Tkinter UI with copy support.
+
+    If a graphical display isn't available, print the data to stdout instead.
+    """
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        for item in data:
+            print(f"Trend: {item['topic']}")
+            print(f"Description:\n{item['description']}")
+            print(f"Left sentiment: {item['sentiment_left']}")
+            print(f"Right sentiment: {item['sentiment_right']}")
+            print('-' * 40)
+        return
+
     root.title('Argentina Twitter Trends')
 
-    text = tk.Text(root, wrap='word')
-    scroll = tk.Scrollbar(root, command=text.yview)
+    frame = tk.Frame(root)
+    frame.pack(fill='both', expand=True)
+
+    text = tk.Text(frame, wrap='word')
+    scroll = tk.Scrollbar(frame, command=text.yview)
     text.configure(yscrollcommand=scroll.set)
     text.pack(side='left', fill='both', expand=True)
     scroll.pack(side='right', fill='y')
@@ -176,6 +196,14 @@ def build_ui(data):
         text.insert('end', f"Left sentiment: {item['sentiment_left']}\n")
         text.insert('end', f"Right sentiment: {item['sentiment_right']}\n")
         text.insert('end', '-' * 40 + '\n')
+
+    def copy_all():
+        root.clipboard_clear()
+        root.clipboard_append(text.get('1.0', 'end'))
+        messagebox.showinfo('Copy', 'Trends copied to clipboard')
+
+    btn = tk.Button(root, text='Copy All', command=copy_all)
+    btn.pack(fill='x')
 
     text.configure(state='disabled')
     root.mainloop()
