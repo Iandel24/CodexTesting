@@ -10,8 +10,13 @@ keys are required.
 import requests
 from bs4 import BeautifulSoup
 import tkinter as tk
-from tkinter import ttk
 import re
+from collections import Counter
+import string
+import nltk
+from nltk.sentiment import SentimentIntensityAnalyzer
+from nltk.corpus import stopwords
+from googletrans import Translator
 
 # -------------------------------------------------------------
 # Trend fetching
@@ -34,15 +39,13 @@ def fetch_trending_topics():
     return [li.get_text(strip=True) for li in card.find_all("li")][:10]
 
 # A very naive sentiment analyzer using small word lists
-POSITIVE_WORDS = {
-    "good", "great", "happy", "love", "excellent", "positive", "fortunate",
-    "correct", "superior", "favorable"
-}
+# Initialize NLTK tools for simple AI sentiment and summarization
+nltk.download('vader_lexicon', quiet=True)
+nltk.download('stopwords', quiet=True)
 
-NEGATIVE_WORDS = {
-    "bad", "sad", "hate", "terrible", "awful", "negative", "unfortunate",
-    "wrong", "inferior", "unfavorable"
-}
+SID = SentimentIntensityAnalyzer()
+STOPWORDS = set(stopwords.words('spanish'))
+TRANSLATOR = Translator()
 
 # Very small keyword sets to decide whether a tweet leans left or right.
 LEFT_KEYWORDS = {"peronismo", "kirchnerismo", "izquierda"}
@@ -66,7 +69,7 @@ def fetch_tweets_from_nitter(topic):
     timestamp_re = re.compile(r'UTC"\)$')
 
     i = 0
-    while i < len(lines) and len(tweets) < 10:
+    while i < len(lines) and len(tweets) < 30:
         line = lines[i]
         if timestamp_re.search(line):
             j = i + 1
@@ -83,12 +86,32 @@ def fetch_tweets_from_nitter(topic):
     return tweets
 
 def sentiment_score(text):
-    words = {w.strip('.,!?:;').lower() for w in text.split()}
-    pos = len(words & POSITIVE_WORDS)
-    neg = len(words & NEGATIVE_WORDS)
-    if pos + neg == 0:
-        return 0.0
-    return (pos - neg) / (pos + neg)
+    """Return a compound sentiment score using NLTK and translation."""
+    try:
+        translated = TRANSLATOR.translate(text, dest='en').text
+    except Exception:
+        translated = text
+    return SID.polarity_scores(translated)['compound']
+
+
+def summarize_tweets(tweets, n=10):
+    """Return a summary consisting of the *n* most representative tweets."""
+    freq = Counter(
+        word.strip(string.punctuation).lower()
+        for t in tweets
+        for word in t.split()
+        if word.lower() not in STOPWORDS
+    )
+    scored = []
+    for t in tweets:
+        score = sum(
+            freq[word.strip(string.punctuation).lower()]
+            for word in t.split()
+            if word.lower() not in STOPWORDS
+        )
+        scored.append((score, t))
+    scored.sort(reverse=True)
+    return '\n'.join(t for _, t in scored[:n])
 
 def analyze_trend(topic):
     tweets = fetch_tweets_from_nitter(topic)
@@ -105,21 +128,23 @@ def analyze_trend(topic):
     for t in tweets:
         score = sentiment_score(t)
         text_lower = t.lower()
-        if any(k in text_lower for k in LEFT_KEYWORDS):
+        in_left = any(k in text_lower for k in LEFT_KEYWORDS)
+        in_right = any(k in text_lower for k in RIGHT_KEYWORDS)
+        if in_left:
             left_scores.append(score)
-        if any(k in text_lower for k in RIGHT_KEYWORDS):
+        if in_right:
             right_scores.append(score)
-        if not (any(k in text_lower for k in LEFT_KEYWORDS) or any(k in text_lower for k in RIGHT_KEYWORDS)):
-            # Neutral tweet contributes to both sides
+        if not in_left and not in_right:
             left_scores.append(score)
             right_scores.append(score)
 
     def average(lst):
         return sum(lst) / len(lst) if lst else 0.0
 
+    summary = summarize_tweets(tweets, n=10)
     return {
         'topic': topic,
-        'description': '\n'.join(tweets[:10]),
+        'description': summary,
         'sentiment_left': round(average(left_scores), 3),
         'sentiment_right': round(average(right_scores), 3)
     }
@@ -128,29 +153,20 @@ def build_ui(data):
     root = tk.Tk()
     root.title('Argentina Twitter Trends')
 
-    tree = ttk.Treeview(
-        root,
-        columns=('Topic', 'Description', 'Left Sentiment', 'Right Sentiment'),
-        show='headings'
-    )
-    tree.heading('Topic', text='Trend')
-    tree.heading('Description', text='Description (10 lines)')
-    tree.heading('Left Sentiment', text='Left Wing Sentiment')
-    tree.heading('Right Sentiment', text='Right Wing Sentiment')
-    tree.pack(fill='both', expand=True)
+    text = tk.Text(root, wrap='word')
+    scroll = tk.Scrollbar(root, command=text.yview)
+    text.configure(yscrollcommand=scroll.set)
+    text.pack(side='left', fill='both', expand=True)
+    scroll.pack(side='right', fill='y')
 
     for item in data:
-        tree.insert(
-            '',
-            'end',
-            values=(
-                item['topic'],
-                item['description'],
-                item['sentiment_left'],
-                item['sentiment_right']
-            )
-        )
+        text.insert('end', f"Trend: {item['topic']}\n")
+        text.insert('end', f"Description:\n{item['description']}\n")
+        text.insert('end', f"Left sentiment: {item['sentiment_left']}\n")
+        text.insert('end', f"Right sentiment: {item['sentiment_right']}\n")
+        text.insert('end', '-' * 40 + '\n')
 
+    text.configure(state='disabled')
     root.mainloop()
 
 if __name__ == '__main__':
