@@ -6,23 +6,48 @@ proxy.  It performs basic sentiment analysis with NLTK's VADER after translating
 tweets to English when possible.  Results are summarized with a simple
 frequency-based approach and shown in a tiny Tkinter UI.  No official Twitter
 API keys are required.
+
+Before running the script make sure all dependencies are installed::
+
+    pip install -r requirements.txt
 """
 
-import requests
-from bs4 import BeautifulSoup
+import sys
+
+_missing = []
+try:
+    import requests
+except Exception:
+    _missing.append("requests")
+try:
+    from bs4 import BeautifulSoup
+except Exception:
+    _missing.append("beautifulsoup4")
+try:
+    import nltk
+except Exception:
+    _missing.append("nltk")
+try:
+    from googletrans import Translator
+except Exception:
+    _missing.append("googletrans")
+
+if _missing:
+    missing = ", ".join(_missing)
+    sys.exit(
+        f"Missing dependencies: {missing}. Install them with 'pip install -r requirements.txt'"
+    )
+
 import tkinter as tk
 from tkinter import messagebox
 import re
 from collections import Counter
 import string
 import asyncio
-import nltk
 from nltk.sentiment import SentimentIntensityAnalyzer
 from nltk.corpus import stopwords
-from googletrans import Translator
 from concurrent.futures import ThreadPoolExecutor
 import os
-import sys
 
 # -------------------------------------------------------------
 # Trend fetching
