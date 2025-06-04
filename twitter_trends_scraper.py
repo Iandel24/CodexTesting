@@ -1,10 +1,11 @@
 """Minimal scraper for Twitter trends in Argentina.
 
 The script retrieves trending topics from Trends24 and then looks up recent
-tweets for each topic using the public Nitter front end through a simple proxy
-(`r.jina.ai`).  It performs a very naive sentiment analysis over the collected
-tweets and displays everything in a Tkinter table.  No official Twitter API
-keys are required.
+tweets for each topic using the public Nitter front end via the ``r.jina.ai``
+proxy.  It performs basic sentiment analysis with NLTK's VADER after translating
+tweets to English when possible.  Results are summarized with a simple
+frequency-based approach and shown in a tiny Tkinter UI.  No official Twitter
+API keys are required.
 """
 
 import requests
@@ -13,10 +14,12 @@ import tkinter as tk
 import re
 from collections import Counter
 import string
+import asyncio
 import nltk
 from nltk.sentiment import SentimentIntensityAnalyzer
 from nltk.corpus import stopwords
 from googletrans import Translator
+from concurrent.futures import ThreadPoolExecutor
 
 # -------------------------------------------------------------
 # Trend fetching
@@ -85,13 +88,21 @@ def fetch_tweets_from_nitter(topic):
 
     return tweets
 
-def sentiment_score(text):
-    """Return a compound sentiment score using NLTK and translation."""
+def sentiment_score(text: str) -> float:
+    """Return a compound sentiment score using NLTK.
+
+    googletrans 4.x exposes an async ``translate`` method, while 3.x uses a
+    regular function.  This helper handles both cases and falls back to the
+    original text if translation fails.
+    """
     try:
-        translated = TRANSLATOR.translate(text, dest='en').text
+        result = TRANSLATOR.translate(text, dest="en")
+        if hasattr(result, "__await__"):
+            result = asyncio.run(result)
+        translated = result.text
     except Exception:
         translated = text
-    return SID.polarity_scores(translated)['compound']
+    return SID.polarity_scores(translated)["compound"]
 
 
 def summarize_tweets(tweets, n=10):
@@ -171,5 +182,6 @@ def build_ui(data):
 
 if __name__ == '__main__':
     topics = fetch_trending_topics()
-    results = [analyze_trend(t) for t in topics]
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        results = list(ex.map(analyze_trend, topics))
     build_ui(results)
